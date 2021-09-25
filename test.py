@@ -12,8 +12,8 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Content-type','text/html')
         self.end_headers()
         display = '<html><body>'
-        display += '<h1>Choix<h1>'
-        display += '<p><h3><form method="POST" enctype="multipart/form-data" action="/">'
+        display += '<h1>Choice<h1>'
+        display += '<p><h3>Currenttemperature is : {}<form method="POST" enctype="multipart/form-data" action="/">'.format(in_q)
         display += '<div><input name= "OnOff" type="radio" value="On"{}>ON</div>'.format(checked[0])
         display += '<div><input name= "OnOff" type="radio" value="Off"{}>OFF</div>'.format(checked[1])
         display += '<input type="submit">'
@@ -49,10 +49,12 @@ def server(out_q):
 def automation(in_q):
     while True:
         print(in_q.get())
+        in_q.put("69,50")
           
 # Create the shared queue and launch both threads
 q = Queue()
-t1 = Thread(target = server, args =(q, ))
-t2 = Thread(target = automation, args =(q, ))
+q2 = Queue()
+t1 = Thread(target = server, args =(q, q2))
+t2 = Thread(target = automation, args =(q, q2))
 t1.start()
 t2.start()
