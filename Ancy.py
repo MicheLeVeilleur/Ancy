@@ -1,5 +1,3 @@
-#DO NOT FORGET TO UNCOMMENT TEST PARTS !!!!!!!!!
-
 
 from http.server import HTTPServer
 from queue import Queue
@@ -11,7 +9,7 @@ import misc_functions as f
 
 # Thread handling HTTP server
 def server(out_q):
-    with HTTPServer(('192.168.1.72', 8000), f.make_custom_handler(q)) as server:
+    with HTTPServer(('192.168.1.88', 8000), f.make_custom_handler(q)) as server:
         print ("serving at port 8000")
         server.serve_forever()
 

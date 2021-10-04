@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler
 import matplotlib.pyplot as plt
 import Adafruit_DHT as dht
 import RPi.GPIO as GPIO
-import os, shutil
+import os
 
 # constants of connection to MariaDB
 
@@ -32,10 +32,14 @@ def make_custom_handler(q):
 
             if self.path.endswith(".png"):
                 mimetype='image/png'
+            elif self.path.endswith(".mp4"):
+                mimetype = 'video/mp4'
             else:
                 mimetype='text/html'
             self.send_header('Content-type',mimetype)
             self.end_headers()
+
+
             if self.path == "/":
                 for filename in os.listdir(os.path.abspath('graphs')):
                     file_path = os.path.join(os.path.abspath('graphs'), filename)
@@ -63,9 +67,6 @@ def make_custom_handler(q):
                 display += ' <a href="/graphs/quatre_last_step_12.png">50 dernieres heures quatre</a> <a href="/graphs/deux_last_step_12.png">50 dernieres heures deux</a> '
                 display += ' <a href="/graphs/zero_last_step_12.png">50 dernieres heures zero</a> <br/>'
 
-                display += '<a href="/graphs/quatre_last_step_40.png">7 derniers jours quatre</a> <a href="/graphs/deux_last_step_40.png"> 7 derniers jours deux</a> '
-                display += ' <a href="/graphs/zero_last_step_40.png">7 derniers jours zero</a> '
-
                 display += '</h3></p></body></html>'
 
                 self.wfile.write(bytes(display, "utf8"))
@@ -86,12 +87,15 @@ def make_custom_handler(q):
                         self.wfile.write(f.read())
             
             elif 'period' in self.path:
-                print(self.path)
                 split = self.path.split('_')
                 date_sup,date_inf = split[2], split[3][:-4]
                 table_name = split[0][1:]
-                make_period_plot(table_name,date_sup,date_inf,50)
+                make_period_plot(table_name,date_sup,date_inf,100)
                 with open('graphs/{0}_period_{1}.png'.format(table_name,date_sup),'rb') as f:
+                    self.wfile.write(f.read())
+            
+            elif 'anniv' in self.path:
+                with open('Papa_anniv.mp4','rb') as f:
                     self.wfile.write(f.read())
 
 
@@ -108,7 +112,7 @@ def make_custom_handler(q):
             else:
                 date_inf = "20"+post_body.split("\\n20")[1][:14].replace('T',' ')+":00"
                 date_sup = "20"+post_body.split("\\n20")[2][:14].replace('T',' ')+":00"
-                self.path = "/quatre_period_{0}_{1}.png".format(date_sup,date_inf)
+                self.path = "/deux_period_{0}_{1}.png".format(date_sup,date_inf)
             self.do_GET()
     return handler
 
@@ -147,7 +151,7 @@ def get_record(table_name, datetime):
 	return send_query(query, None, return_result=True)[0]
 
 def get_records(table_name, datetime,limit):
-    query = "SELECT * FROM (SELECT temp, hum, date FROM {0}\
+    query = "SELECT * FROM (SELECT date, temp, hum FROM {0}\
             ORDER BY TIMEDIFF('{1}', date)\
             LIMIT {2}) as foo\
             ORDER BY foo.date ASC".format(table_name,datetime,limit)
@@ -162,6 +166,7 @@ def get_step_records(table_name, datetime, step, limit):
                 FROM {2} HAVING a % {0} = 0 \
                 ORDER BY TIMEDIFF('{3}', date) LIMIT {1} ) AS T\
             ORDER BY T.date ASC".format(step,limit,table_name,datetime)
+    print(query)
     result =  send_query(query, None, return_result=True)
     query = "DROP SEQUENCE s"
     time.sleep(1)
@@ -188,17 +193,17 @@ def make_plot(tuples):
     temp = []
     hum = []
     for line in tuples:
-        temp.append(line[0])
-        hum.append(line[1])
-        dates_full.append(line[2])
+        dates_full.append(line[0])
+        temp.append(line[1])
+        hum.append(line[2])
     fig, (ax1, ax2) = plt.subplots(2, sharex=True)
     ax1.plot(dates_full, temp)
     ax2.plot(dates_full, hum)
+    plt.xticks(dates_full,rotation=90)
     ax1.set_title('Temperature')
     ax2.set_title('Humidite')
     plt.ylim(bottom=0)
     plt.ylim(top=100)
-    plt.xticks(dates_full,rotation=90)
     return fig, (ax1,ax2)
 
 def make_recent_plot(table_name, limit):
@@ -218,10 +223,13 @@ def make_period_plot(table_name, date_sup, date_inf, limit):
     date_sup_t = datetime. strptime(date_sup, '%Y-%m-%d %H:%M:%S')
     date_inf_t = datetime. strptime(date_inf, '%Y-%m-%d %H:%M:%S')
     diff_s = (date_sup_t - date_inf_t).total_seconds()
+    print(diff_s/INSERT_DELAY)
     step = round(diff_s / INSERT_DELAY /limit)
+
     tuples = get_step_records(table_name,date_sup,step,limit)
     fig, (ax1, ax2) = make_plot(tuples)
-    fig.suptitle('{0} dernières heures de {1}'.format(round(limit*step*INSERT_DELAY/3600),table_name))
+    m, d, h = s_to_m_d_h(limit*step*INSERT_DELAY)
+    fig.suptitle('{0}m, {1}d, {2}h de {3}'.format(m,d,h,table_name))
     plt.savefig('graphs/{0}_period_{1}.png'.format(table_name,date_sup),dpi=100,bbox_inches='tight')
 
 def get_and_insert():
@@ -239,3 +247,14 @@ def get_and_insert():
             print(date," error while reading dht22 on pin {}".format(DHT_PIN[i]))
         i += 1
     time.sleep(INSERT_DELAY)
+
+def s_to_m_d_h(seconds):
+    hours = seconds // 3600
+
+    days = hours // 24
+    hours -= days * 24
+
+    months = days // 30
+    days -= months * 30
+
+    return int(months), int(days), int(hours)
