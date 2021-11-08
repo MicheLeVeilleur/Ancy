@@ -4,8 +4,10 @@ import time
 from http.server import BaseHTTPRequestHandler
 import matplotlib.pyplot as plt
 import Adafruit_DHT as dht
+from Ancy import thermostat
 import RPi.GPIO as GPIO
 import os
+from sys import argv
 
 # constants of connection to MariaDB
 
@@ -21,11 +23,23 @@ DHT_SENSOR = dht.DHT22
 DHT_PIN = [9,10,11]
 INSERT_DELAY = 300
 
+args = argv
+if len(args) > 1:
+    if "-v" in args:
+        verbose = True
+else:
+    verbose = False
+
+force_status = False
+thermostat_status = False
+thermostat_temp = None
+
 def make_custom_handler(q):
     class handler(BaseHTTPRequestHandler):
-        t_status = False
+        
+
         def __init__(self, *args, **kwargs):
-             super(handler, self).__init__(*args, **kwargs)
+            super(handler, self).__init__(*args, **kwargs)
             
         def do_GET(self):
             self.send_response(200)
@@ -46,17 +60,28 @@ def make_custom_handler(q):
                     os.unlink(file_path)
 
                 c_variables = get_last_record('deux')
-                checked = (lambda x:["checked",""] if x else ["","checked"])(self.t_status)
+                f_checked = (lambda x:"CURRENTLY ON" if x else "CURRENTLY OFF")(force_status)
+                t_checked = (lambda x:"CURRENTLY ON" if x else "CURRENTLY OFF")(thermostat_status)
+                f_color = (lambda x: 'green' if x else 'red')(force_status)
+                t_color = (lambda x: 'green' if x else 'red')(thermostat_status)
 
+                
                 display = '<html><body>'
                 display  += '<body><img src=\"/graphs/quatre_last.png\"width><img src=\"/graphs/deux_last.png\"><img src=\"/graphs/zero_last.png\">'
 
-                display += '<p><h3>Current temperature is : {} <form method="POST" enctype="multipart/form-data" action="/">'.format(c_variables)
-                display += '<div><input name= "OnOff" type="radio" value="On"{}>ON</div>'.format(checked[0])
-                display += '<div><input name= "OnOff" type="radio" value="Off"{}>OFF</div>'.format(checked[1])
-                display += '<input type="submit"> </form> <br/>'
+                display += '<p><h3>Current temperature is {} C, humidity {}%, last refresh was {} ago <br/>'.format(c_variables[0],c_variables[1],c_variables[2])
+                display += '<form method="POST" enctype="multipart/form-data" action="/">'
+                display += '<label for="OnOff">RADIATOR STATUS</label>'
+                display += '<input type="hidden" id="OnOff" name="OnOff">'
+                display += '<input type="submit" value="{}" style ="background-color:{}"> </form>'.format(f_checked,f_color)
 
-                display += 'Current temperature is : {} <form method="POST" enctype="multipart/form-data" action="/">'.format(c_variables)
+                display += '<form method="POST" enctype="multipart/form-data" action="/">'
+                display += '<label for="Thermostat">THERMOSTAT STATUS</label>'
+                display += '<input type="hidden" id="Thermostat" name="Thermostat">'
+                display += '<input type="submit" value="{}" style ="background-color:{}">'.format(t_checked,t_color)
+                display += '<label for="Thermostat">CHOOSE TEMPERATURE : </label>'
+                display += '<input type="number" id="Temperature" name="Temperature" min="0" max="30" placeholder="{}"> </form>'.format(thermostat_temp)
+
                 display += '<input type="datetime-local" id="date-inf" name="date-inf" value="2021-09-10T00:00"> '
                 display += '<input type="datetime-local" id="date-sup" name="date-sup" value="2021-10-01T00:00"> '
                 display += ' <input type="submit"> </form> <br/>'
@@ -104,15 +129,34 @@ def make_custom_handler(q):
             content_len = int(self.headers.get('Content-Length'))
             post_body = str(self.rfile.read(content_len))
             if  "OnOff" in post_body:
-                if 'On\r' in post_body:
-                    q.put(True)
+                global force_status
+                force_status = not force_status
+
+                if force_status:
+                    q.put("Force On")
                 else:
-                    q.put(False)
-            
+                    q.put("Force Off")
+            elif "Thermostat" in post_body:
+                global thermostat_status
+                global thermostat_temp
+
+                thermostat_status = not thermostat_status
+                try:
+                    new_temp = int(post_body.split('Temperature"')[1][8:10])
+                    thermostat_temp = new_temp
+                except ValueError:pass
+
+
+                if thermostat_status:
+                    q.put("Thermostat On " + str(thermostat_temp))
+                else:
+                    q.put("Thermostat Off " + str(thermostat_temp))
+             
             else:
                 date_inf = "20"+post_body.split("\\n20")[1][:14].replace('T',' ')+":00"
                 date_sup = "20"+post_body.split("\\n20")[2][:14].replace('T',' ')+":00"
                 self.path = "/deux_period_{0}_{1}.png".format(date_sup,date_inf)
+
             self.do_GET()
     return handler
 
@@ -139,10 +183,11 @@ def send_query(query,args,return_result = False):
 		conn.close()
 
 def insert_record(table_name, datetime, temp, hum):
-	print("inserting record on",table_name,"of ",temp,hum)
-	query = "INSERT INTO {} ( date, temp, hum) VALUES (%s, %s, %s)".format(table_name)
-	args = ( datetime, temp, hum)
-	send_query(query, args)
+    if verbose: 
+        print("inserting record on",table_name,"of ",temp,hum)
+    query = "INSERT INTO {} ( date, temp, hum) VALUES (%s, %s, %s)".format(table_name)
+    args = ( datetime, temp, hum)
+    send_query(query, args)
 
 def get_record(table_name, datetime):
 	query = "SELECT temp, hum, TIMEDIFF('{1}', date) as SecondsBetweenDates FROM {0}\
@@ -166,7 +211,6 @@ def get_step_records(table_name, datetime, step, limit):
                 FROM {2} HAVING a % {0} = 0 \
                 ORDER BY TIMEDIFF('{3}', date) LIMIT {1} ) AS T\
             ORDER BY T.date ASC".format(step,limit,table_name,datetime)
-    print(query)
     result =  send_query(query, None, return_result=True)
     query = "DROP SEQUENCE s"
     time.sleep(1)
@@ -223,7 +267,6 @@ def make_period_plot(table_name, date_sup, date_inf, limit):
     date_sup_t = datetime. strptime(date_sup, '%Y-%m-%d %H:%M:%S')
     date_inf_t = datetime. strptime(date_inf, '%Y-%m-%d %H:%M:%S')
     diff_s = (date_sup_t - date_inf_t).total_seconds()
-    print(diff_s/INSERT_DELAY)
     step = round(diff_s / INSERT_DELAY /limit)
 
     tuples = get_step_records(table_name,date_sup,step,limit)
@@ -244,7 +287,8 @@ def get_and_insert():
         if hum:
             insert_record(table_name , str(date), format(temp, '.2f'), format(hum, '.2f'))
         else:
-            print(date," error while reading dht22 on pin {}".format(DHT_PIN[i]))
+            if verbose:
+                print(date," error while reading dht22 on pin {}".format(DHT_PIN[i]))
         i += 1
     time.sleep(INSERT_DELAY)
 

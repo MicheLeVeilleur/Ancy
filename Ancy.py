@@ -1,4 +1,3 @@
-
 from http.server import HTTPServer
 from queue import Queue
 from threading import Thread
@@ -26,7 +25,7 @@ def sensor_to_sql():
 #### ---- LAUNCH THREADS
 q = Queue() #the queue has to be global to be used by HTTPServer
 def main():
-
+    
     t1 = Thread(target = server, args =(q, ))
     t2 = Thread(target = thermostat, args =(q, ))
     t3 = Thread(target = sensor_to_sql)
