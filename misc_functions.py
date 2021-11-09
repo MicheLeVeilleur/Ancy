@@ -30,9 +30,9 @@ if len(args) > 1:
 else:
     verbose = False
 
-force_status = False
+force_status = None
 thermostat_status = False
-thermostat_temp = None
+thermostat_temp = 20
 
 def make_custom_handler(q):
     class handler(BaseHTTPRequestHandler):
@@ -58,20 +58,21 @@ def make_custom_handler(q):
                 for filename in os.listdir(os.path.abspath('graphs')):
                     file_path = os.path.join(os.path.abspath('graphs'), filename)
                     os.unlink(file_path)
+                plt.close('all')
 
                 c_variables = get_last_record('deux')
-                f_checked = (lambda x:"CURRENTLY ON" if x else "CURRENTLY OFF")(force_status)
+                f_checked = (lambda x:"AUTO" if x is None else("CURRENTLY ON " if x else "CURRENTLY OFF"))(force_status)
                 t_checked = (lambda x:"CURRENTLY ON" if x else "CURRENTLY OFF")(thermostat_status)
-                f_color = (lambda x: 'green' if x else 'red')(force_status)
+                f_color = (lambda x: 'orange' if x is None else('green' if x else 'red'))(force_status)
                 t_color = (lambda x: 'green' if x else 'red')(thermostat_status)
 
                 
                 display = '<html><body>'
-                display  += '<body><img src=\"/graphs/quatre_last.png\"width><img src=\"/graphs/deux_last.png\"><img src=\"/graphs/zero_last.png\">'
+                
 
                 display += '<p><h3>Current temperature is {} C, humidity {}%, last refresh was {} ago <br/>'.format(c_variables[0],c_variables[1],c_variables[2])
                 display += '<form method="POST" enctype="multipart/form-data" action="/">'
-                display += '<label for="OnOff">RADIATOR STATUS</label>'
+                display += '<label for="OnOff">FORCE RADIATOR STATUS</label>'
                 display += '<input type="hidden" id="OnOff" name="OnOff">'
                 display += '<input type="submit" value="{}" style ="background-color:{}"> </form>'.format(f_checked,f_color)
 
@@ -82,9 +83,13 @@ def make_custom_handler(q):
                 display += '<label for="Thermostat">CHOOSE TEMPERATURE : </label>'
                 display += '<input type="number" id="Temperature" name="Temperature" min="0" max="30" placeholder="{}"> </form>'.format(thermostat_temp)
 
+                display += '<form method="POST" enctype="multipart/form-data" action="/">'
                 display += '<input type="datetime-local" id="date-inf" name="date-inf" value="2021-09-10T00:00"> '
                 display += '<input type="datetime-local" id="date-sup" name="date-sup" value="2021-10-01T00:00"> '
                 display += ' <input type="submit"> </form> <br/>'
+
+                display  += '<a href=\"/graphs/quatre_last.png\">4 dernieres heures quatre</a> <a href=\"/graphs/deux_last.png\">4 dernieres heures deux</a> '
+                display += '<a href=\"/graphs/zero_last.png\">4 dernieres heures zero</a> <br/>'
 
                 display += ' <a href="/graphs/quatre_last_step_3.png">12 dernieres heures quatre</a> <a href="/graphs/deux_last_step_3.png">12 dernieres heures deux</a> '
                 display += ' <a href="/graphs/zero_last_step_3.png">12 dernieres heures zero</a> <br/>'
@@ -130,9 +135,16 @@ def make_custom_handler(q):
             post_body = str(self.rfile.read(content_len))
             if  "OnOff" in post_body:
                 global force_status
-                force_status = not force_status
+                if force_status is None:
+                    force_status = True
+                elif force_status:
+                    force_status = False
+                else:
+                    force_status = None
 
-                if force_status:
+                if force_status is None:
+                    q.put("Force Auto")
+                elif force_status:
                     q.put("Force On")
                 else:
                     q.put("Force Off")
@@ -166,6 +178,7 @@ def MakeHandlerClassFromArgv(init_args):
              super(CustomHandler, self).__init__(*args, **kwargs)
     return CustomHandler
 ##### --- Misc fcts
+
 def send_query(query,args,return_result = False):
 	try:
 		conn = MySQLdb.connect(host=HOSTNAME, user=USERNAME, passwd=PASSWORD, db=DATABASE)
