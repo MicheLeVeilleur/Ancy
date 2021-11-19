@@ -6,13 +6,13 @@ import api_interface as a
 ##### ---- THREADS
 
 # Thread handling HTTP server
-def server(out_q):
-    with f.http.server.HTTPServer(('192.168.1.88', 8000), f.make_custom_handler(q)) as server:
+def server(q,in_q):
+    with f.http.server.HTTPServer(('192.168.1.88', 8000), f.make_custom_handler(q,in_q)) as server:
         print ("serving at port 8000")
         server.serve_forever()
 
 #Thread handling thermostat + calls to Legrand API
-def thermostat(in_q):
+def thermostat(in_q,out_q):
     thermostat_status = False
     force_status = False
     thermostat_temp = None
@@ -23,7 +23,6 @@ def thermostat(in_q):
     while True:
         new_command = in_q.get()
         print(new_command)
-        last_temp = float(f.sql.get_last_record('deux')[0])
         if new_command:
             if "Force" in new_command:
                 arg = new_command.split(" ")[1]
@@ -39,19 +38,30 @@ def thermostat(in_q):
                     thermostat_status = True
                 elif arg == "Off":
                     thermostat_status = False
+                    current_state = False
         
-        if not force_status is None:
-            current_state = force_status
-        elif thermostat_status:
-            if last_temp < int(thermostat_temp):
-                current_state = True
-            else: 
-                current_state = False
-    
-        if last_current_state != current_state:
-            print(current_state)
-            last_current_state = current_state
-            #api_interface.set_module(a.CONTACTORS_ID[0],current_state)
+            if not force_status is None:
+                current_state = force_status
+            elif thermostat_status:
+                last_temp = float(f.sql.get_last_record('deux')[0])
+                if last_temp < int(thermostat_temp):
+                    current_state = True
+                else: 
+                    current_state = False
+        
+            if last_current_state != current_state:
+                print(current_state)
+                last_current_state = current_state
+                #call_successful, response = api_interface.set_module(a.CONTACTORS_ID[0],current_state)
+                call_successful, response = True, {"status":"ok","time_exec":"0.060059070587158","time_server":"1553777827","body":{"errors":[]}}
+                if call_successful:
+                    http_response = "API call successful"
+                else:
+                    http_response = str(response)
+            else:
+                http_response = "No call to API"
+            out_q.put(http_response)
+        
             
 
 
@@ -62,11 +72,12 @@ def sensor_to_sql():
 
 #### ---- LAUNCH THREADS
 q = Queue() #the queue has to be global to be used by HTTPServer
+q2 = Queue()
 
 def main():
     
-    t1 = Thread(target = server, args =(q, ))
-    t2 = Thread(target = thermostat, args =(q, ))
+    t1 = Thread(target = server, args =(q, q2, ))
+    t2 = Thread(target = thermostat, args =(q, q2, ))
     t3 = Thread(target = sensor_to_sql)
     t1.start()
     t2.start()

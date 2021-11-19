@@ -2,10 +2,10 @@ import http.server
 import os
 import plot
 import sql
+import api_interface
 
 
-
-def make_custom_handler(q):
+def make_custom_handler(q,in_q):
     
     
     class handler(http.server.BaseHTTPRequestHandler):
@@ -14,6 +14,7 @@ def make_custom_handler(q):
         thermostat_temp = 20
 
         def __init__(self, *args, **kwargs):
+            self.last_api_call = "No changes"
             super(handler, self).__init__(*args, **kwargs)
             
         def do_GET(self):
@@ -58,6 +59,8 @@ def make_custom_handler(q):
                 display += '<label for="Thermostat">CHOOSE TEMPERATURE : </label>'
                 display += '<input type="number" id="Temperature" name="Temperature" min="0" max="30" placeholder="{}"> </form>'.format(\
                     handler.thermostat_temp)
+                
+                display += '<i>'+self.last_api_call+'</i>'
 
                 display += '<form method="POST" enctype="multipart/form-data" action="/">'
                 display += '<input type="datetime-local" id="date-inf" name="date-inf" value="2021-09-10T00:00"> '
@@ -106,23 +109,18 @@ def make_custom_handler(q):
 
 
         def do_POST(self):
-            
             content_len = int(self.headers.get('Content-Length'))
             post_body = str(self.rfile.read(content_len))
             if  "OnOff" in post_body:
                 if handler.force_status is None:
                     handler.force_status = True
+                    q.put("Force On")
                 elif handler.force_status:
                     handler.force_status = False
+                    q.put("Force Off")
                 else:
                     handler.force_status = None
-            elif "Force" in post_body:
-                if handler.force_status is None:
                     q.put("Force Auto")
-                elif handler.force_status:
-                    q.put("Force On")
-                else:
-                    q.put("Force Off")
             elif "Thermostat" in post_body:
 
                 handler.thermostat_status = not handler.thermostat_status
@@ -141,7 +139,10 @@ def make_custom_handler(q):
                 date_inf = "20"+post_body.split("\\n20")[1][:14].replace('T',' ')+":00"
                 date_sup = "20"+post_body.split("\\n20")[2][:14].replace('T',' ')+":00"
                 self.path = "/deux_period_{0}_{1}.png".format(date_sup,date_inf)
-
+            for i in range(1000):
+                msg = in_q.get()
+                if msg:break
+            self.last_api_call = msg
             self.do_GET()
     return handler
 
