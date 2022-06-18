@@ -1,12 +1,24 @@
 import http.server
 import os
+from queue import Empty
+import socket
+
 import plot
 import sql
-import api_interface
 
+
+def getIPAdress():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    return s.getsockname()[0]
+
+def server(q,in_q):
+    IP = getIPAdress()
+    with http.server.HTTPServer((IP, sql.PORT), make_custom_handler(q,in_q)) as server:
+        print ("server started at {0} port {1}".format(getIPAdress(),sql.PORT))
+        server.serve_forever()
 
 def make_custom_handler(q,in_q):
-    
     
     class handler(http.server.BaseHTTPRequestHandler):
         force_status = None
@@ -45,9 +57,9 @@ def make_custom_handler(q,in_q):
                 display = '<html><body>'
                 
 
-                display += '<p><h3>Current temperature is {} C, humidity {}%, last refresh was {} ago <br/>'.format(\
+                display += '<h3>Current temperature is {} C, humidity {}%, last refresh was {} ago </h3><br/>'.format(\
                     c_variables[0],c_variables[1],c_variables[2])
-                display += '<form method="POST" enctype="multipart/form-data" action="/">'
+                display += '<p><b><FONT face="arial"><form method="POST" enctype="multipart/form-data" action="/">'
                 display += '<label for="OnOff">FORCE RADIATOR STATUS</label>'
                 display += '<input type="hidden" id="OnOff" name="OnOff">'
                 display += '<input type="submit" value="{}" style ="background-color:{}"> </form>'.format(f_checked,f_color)
@@ -57,7 +69,7 @@ def make_custom_handler(q,in_q):
                 display += '<input type="hidden" id="Thermostat" name="Thermostat">'
                 display += '<input type="submit" value="{}" style ="background-color:{}">'.format(t_checked,t_color)
                 display += '<label for="Thermostat">CHOOSE TEMPERATURE : </label>'
-                display += '<input type="number" id="Temperature" name="Temperature" min="0" max="30" placeholder="{}"> </form>'.format(\
+                display += '<input type="number" id="Temperature" name="Temperature" min="0" max="40" placeholder="{}"> </form>'.format(\
                     handler.thermostat_temp)
                 
                 display += '<i>'+self.last_api_call+'</i>'
@@ -76,7 +88,7 @@ def make_custom_handler(q,in_q):
                 display += ' <a href="/graphs/quatre_last_step_12.png">50 dernieres heures quatre</a> <a href="/graphs/deux_last_step_12.png">50 dernieres heures deux</a> '
                 display += ' <a href="/graphs/zero_last_step_12.png">50 dernieres heures zero</a> <br/>'
 
-                display += '</h3></p></body></html>'
+                display += '</FONT></b></p></body></html>'
 
                 self.wfile.write(bytes(display, "utf8"))
             
@@ -112,6 +124,7 @@ def make_custom_handler(q,in_q):
             content_len = int(self.headers.get('Content-Length'))
             post_body = str(self.rfile.read(content_len))
             if  "OnOff" in post_body:
+                if sql.VERBOSE: print("Server handling OnOff")
                 if handler.force_status is None:
                     handler.force_status = True
                     q.put("Force On")
@@ -122,7 +135,7 @@ def make_custom_handler(q,in_q):
                     handler.force_status = None
                     q.put("Force Auto")
             elif "Thermostat" in post_body:
-
+                if sql.VERBOSE: print("Server handling Thermostat")
                 handler.thermostat_status = not handler.thermostat_status
                 try:
                     new_temp = int(post_body.split('Temperature"')[1][8:10])
@@ -139,10 +152,14 @@ def make_custom_handler(q,in_q):
                 date_inf = "20"+post_body.split("\\n20")[1][:14].replace('T',' ')+":00"
                 date_sup = "20"+post_body.split("\\n20")[2][:14].replace('T',' ')+":00"
                 self.path = "/deux_period_{0}_{1}.png".format(date_sup,date_inf)
-            for i in range(1000):
-                msg = in_q.get()
-                if msg:break
-            self.last_api_call = msg
+
+            if sql.VERBOSE : print("Server retreving API response")
+            try:
+                self.last_api_call = in_q.get(timeout=1)
+            except Empty:
+                self.last_api_call = "Error : no response from thermostat thread"
+
+            if sql.VERBOSE : print("API response : {}".format(self.last_api_call))
             self.do_GET()
     return handler
 

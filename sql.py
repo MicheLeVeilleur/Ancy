@@ -1,17 +1,18 @@
-import RPi.GPIO as GPIO
-import Adafruit_DHT as dht
 import MySQLdb
-import time
 from datetime import datetime
-
+import time
 from sys import argv
+
+PORT = 8000
+VERBOSE = False
 
 args = argv
 if len(args) > 1:
     if "-v" in args:
-        verbose = True
-else:
-    verbose = False
+        VERBOSE = True
+    if "-p" in args:
+        PORT = int(args[args.index("-p")+1])
+
 
 
 # constants of connection to MariaDB
@@ -20,13 +21,7 @@ SQL_HOSTNAME = 'localhost'
 SQL_USERNAME = 'pi'
 SQL_PASSWORD = 'raspberry'
 SQL_DATABASE = 'Sensors'
-SQL_SENSORS_NAME = ['quatre', 'deux', 'zero']
-INSERT_DELAY = 300
 
-#constants of the sensors
-
-DHT_SENSOR = dht.DHT22
-DHT_PIN = [9,10,11]
 
 def send_query(query,args,return_result = False):
 	try:
@@ -45,7 +40,7 @@ def send_query(query,args,return_result = False):
 		conn.close()
 
 def insert_record(table_name, datetime, temp, hum):
-    if verbose: 
+    if VERBOSE: 
         print("inserting record on",table_name,"of ",temp,hum)
     query = "INSERT INTO {} ( date, temp, hum) VALUES (%s, %s, %s)".format(table_name)
     args = ( datetime, temp, hum)
@@ -95,22 +90,7 @@ def get_last_step_records(table_name, step, limit):
     return get_step_records(table_name, date,step,limit)
 
 
-def get_and_insert():
-    GPIO.setmode(GPIO.BCM)
-    for dht_sensor_port in DHT_PIN:
-	    GPIO.setup(dht_sensor_port, GPIO.IN)
-    now = datetime.now()
-    date = now.strftime('%Y-%m-%d %H:%M:%S')
-    i = 0
-    for table_name in SQL_SENSORS_NAME:
-        hum, temp = dht.read_retry(DHT_SENSOR, DHT_PIN[i] )
-        if hum:
-            insert_record(table_name , str(date), format(temp, '.2f'), format(hum, '.2f'))
-        else:
-            if verbose:
-                print(date," error while reading dht22 on pin {}".format(DHT_PIN[i]))
-        i += 1
-    time.sleep(INSERT_DELAY)
+
 
 def s_to_m_d_h(seconds):
     hours = seconds // 3600

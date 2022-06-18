@@ -1,0 +1,10 @@
+        ------------------sql.py-------------------------
+        |                   |                           |
+        |                   |                           |
+get_and_insert.sql      plot.py                         |   ------  api_interface.py 
+        |                   |                           |   |
+        |                   |                           |   |
+        |            custom_http_server.py <---q---> thermostat.py
+        |                   |                               |
+        |                   |                               |
+        ------------------Ancy.py----------------------------
