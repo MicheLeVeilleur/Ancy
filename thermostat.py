@@ -18,12 +18,28 @@ def parse_new_command(new_command, force_status, thermostat_status, thermostat_t
             thermostat_status = False
     return force_status, thermostat_status, thermostat_temp
 
-def test_thermostat(thermostat_status, thermostat_temp):
+def test_thermostat(thermostat_temp):
     last_temp = float(sql.get_last_record('deux')[0])
     if last_temp < int(thermostat_temp):
         return True
     else: 
         return False
+
+def call_api(current_state,out_q):
+    if sql.VERBOSE : print("current state",current_state)
+    #call_successful, response = api_interface.set_module(a.CONTACTORS_ID[0],current_state)
+    call_successful, response = True, {"status":"ok","time_exec":"0.060059070587158","time_server":"1553777827","body":{"errors":[]}}
+    if call_successful:
+        http_response = "API call successful - {}".format(sql.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+    else:
+        http_response = str(response) + str(sql.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+    if sql.VERBOSE : print(http_response)
+    out_q.put(http_response)
+
+def no_call_api(out_q):
+    http_response = "No call to API - {}".format(sql.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+    out_q.put(http_response)
+    if sql.VERBOSE : print(http_response)
 
 def thermostat(in_q,out_q):
     thermostat_status = False
@@ -43,20 +59,11 @@ def thermostat(in_q,out_q):
             current_state = force_status
             
         elif thermostat_status:
-            current_state = test_thermostat(thermostat_status, thermostat_temp)
+            current_state = test_thermostat(thermostat_temp)
 
         if last_current_state != current_state:
-            if sql.VERBOSE : print("current state",current_state)
             last_current_state = current_state
-            #call_successful, response = api_interface.set_module(a.CONTACTORS_ID[0],current_state)
-            call_successful, response = True, {"status":"ok","time_exec":"0.060059070587158","time_server":"1553777827","body":{"errors":[]}}
-            if call_successful:
-                http_response = "API call successful - {}".format(sql.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-            else:
-                http_response = str(response) + str(sql.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-            if sql.VERBOSE : print(http_response)
-            out_q.put(http_response)
+            call_api(current_state,out_q)
         else:
-            http_response = "No call to API - {}".format(sql.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-            if sql.VERBOSE : print(http_response)
-            out_q.put(http_response)
+            no_call_api(out_q)
+            

@@ -28,7 +28,7 @@ def make_custom_handler(q,in_q):
         def __init__(self, *args, **kwargs):
             self.last_api_call = "No changes"
             super(handler, self).__init__(*args, **kwargs)
-            
+          
         def do_GET(self):
             self.send_response(200)
 
@@ -40,7 +40,7 @@ def make_custom_handler(q,in_q):
                 mimetype='text/html'
             self.send_header('Content-type',mimetype)
             self.end_headers()
-
+            
 
             if self.path == "/":
                 for filename in os.listdir(os.path.abspath('graphs')):
@@ -55,8 +55,6 @@ def make_custom_handler(q,in_q):
 
                 
                 display = '<html><body>'
-                
-
                 display += '<h3>Current temperature is {} C, humidity {}%, last refresh was {} ago </h3><br/>'.format(\
                     c_variables[0],c_variables[1],c_variables[2])
                 display += '<p><b><FONT face="arial"><form method="POST" enctype="multipart/form-data" action="/">'
@@ -79,14 +77,10 @@ def make_custom_handler(q,in_q):
                 display += '<input type="datetime-local" id="date-sup" name="date-sup" value="2021-10-01T00:00"> '
                 display += ' <input type="submit"> </form> <br/>'
 
-                display  += '<a href=\"/graphs/quatre_last.png\">4 dernieres heures quatre</a> <a href=\"/graphs/deux_last.png\">4 dernieres heures deux</a> '
-                display += '<a href=\"/graphs/zero_last.png\">4 dernieres heures zero</a> <br/>'
-
-                display += ' <a href="/graphs/quatre_last_step_3.png">12 dernieres heures quatre</a> <a href="/graphs/deux_last_step_3.png">12 dernieres heures deux</a> '
-                display += ' <a href="/graphs/zero_last_step_3.png">12 dernieres heures zero</a> <br/>'
-                
-                display += ' <a href="/graphs/quatre_last_step_12.png">50 dernieres heures quatre</a> <a href="/graphs/deux_last_step_12.png">50 dernieres heures deux</a> '
-                display += ' <a href="/graphs/zero_last_step_12.png">50 dernieres heures zero</a> <br/>'
+                display += '<form method="POST" enctype="multipart/form-data" action="/">'
+                display += '<select name="tables" id="tables-select"><option value="quatre">Quatre</option><option value="deux">Deux</option><option value="zero">Zero</option></select>'
+                display += '<select name="durations" id="durations-select"><option value="4">4 h</option><option value="8">8 h</option><option value="12">12 h</option><option value="24">24 h</option></select>'
+                display += '<input type="submit"></form>'
 
                 display += '</FONT></b></p></body></html>'
 
@@ -123,20 +117,27 @@ def make_custom_handler(q,in_q):
         def do_POST(self):
             content_len = int(self.headers.get('Content-Length'))
             post_body = str(self.rfile.read(content_len))
+
             if  "OnOff" in post_body:
                 if sql.VERBOSE: print("Server handling OnOff")
+
                 if handler.force_status is None:
+
                     handler.force_status = True
                     q.put("Force On")
+
                 elif handler.force_status:
                     handler.force_status = False
                     q.put("Force Off")
+            
                 else:
                     handler.force_status = None
                     q.put("Force Auto")
+
             elif "Thermostat" in post_body:
                 if sql.VERBOSE: print("Server handling Thermostat")
                 handler.thermostat_status = not handler.thermostat_status
+
                 try:
                     new_temp = int(post_body.split('Temperature"')[1][8:10])
                     handler.thermostat_temp = new_temp
@@ -147,15 +148,27 @@ def make_custom_handler(q,in_q):
                     q.put("Thermostat On " + str(handler.thermostat_temp))
                 else:
                     q.put("Thermostat Off " + str(handler.thermostat_temp))
-             
-            else:
+            
+            elif "tables" in post_body:
+                post = post_body.split("n------")
+                table = post[0].split("\\r\\n")[-1][:-3]
+                duration = post[1].split("\\r\\n")[-1][:-3]
+
+                if duration == "4":
+                    self.path = "/graphs/{}_last.png".format(table)
+                else:
+                    step = round(int(duration)*60 / (50 * plot.INSERT_DELAY / 60))
+                    self.path = '/graphs/{0}_last_step_{1}.png'.format(table,step)
+
+            elif "date" in post_body:
                 date_inf = "20"+post_body.split("\\n20")[1][:14].replace('T',' ')+":00"
                 date_sup = "20"+post_body.split("\\n20")[2][:14].replace('T',' ')+":00"
                 self.path = "/deux_period_{0}_{1}.png".format(date_sup,date_inf)
 
+
             if sql.VERBOSE : print("Server retreving API response")
             try:
-                self.last_api_call = in_q.get(timeout=1)
+                self.last_api_call = in_q.get(timeout=2)
             except Empty:
                 self.last_api_call = "Error : no response from thermostat thread"
 

@@ -40,8 +40,6 @@ def send_query(query,args,return_result = False):
 		conn.close()
 
 def insert_record(table_name, datetime, temp, hum):
-    if VERBOSE: 
-        print("inserting record on",table_name,"of ",temp,hum)
     query = "INSERT INTO {} ( date, temp, hum) VALUES (%s, %s, %s)".format(table_name)
     args = ( datetime, temp, hum)
     send_query(query, args)
@@ -88,9 +86,6 @@ def get_last_step_records(table_name, step, limit):
     now = datetime.now()
     date = now.strftime('%Y-%m-%d %H:%M:%S')
     return get_step_records(table_name, date,step,limit)
-
-
-
 
 def s_to_m_d_h(seconds):
     hours = seconds // 3600
